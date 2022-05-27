@@ -1,12 +1,12 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 import os
 import sys
 import hashlib
-import struct
 import argparse
+from struct import unpack
 
 
-class VmaHeader():
+class VmaHeader(object):
     def __init__(self, fo, skip_hash):
         # 0 -  3:   magic
         #     VMA magic string ("VMA\x00")
@@ -15,7 +15,7 @@ class VmaHeader():
 
         # 4 -  7:   version
         #     Version number (valid value is 1)
-        version = int.from_bytes(fo.read(4), 'big')
+        version, = unpack('>I', fo.read(4))  # I
         assert version == 1
 
         # 8 - 23:   uuid
@@ -24,7 +24,7 @@ class VmaHeader():
 
         # 24 - 31:   ctime
         #     Backup time stamp (seconds since epoch)
-        self.ctime = int.from_bytes(fo.read(8), 'big')
+        self.ctime, = unpack('>q', fo.read(8))  # q
 
         # 32 - 47:   md5sum
         #     Header checksum (from byte 0 to header_size). This field
@@ -33,15 +33,15 @@ class VmaHeader():
 
         # 48 - 51:   blob_buffer_offset
         #     Start of blob buffer (multiple of 512)
-        self.blob_buffer_offset = int.from_bytes(fo.read(4), 'big')
+        self.blob_buffer_offset, = unpack('>I', fo.read(4))
 
         # 52 - 55:   blob_buffer_size
         #     Size of blob buffer (multiple of 512)
-        self.blob_buffer_size = int.from_bytes(fo.read(4), 'big')
+        self.blob_buffer_size, = unpack('>I', fo.read(4))
 
         # 56 - 59:   header_size
         #     Overall size of this header (multiple of 512)
-        self.header_size = int.from_bytes(fo.read(4), 'big')
+        self.header_size, = unpack('>I', fo.read(4))
 
         # 60 - 2043: reserved
         fo.seek(1984, os.SEEK_CUR)
@@ -50,13 +50,13 @@ class VmaHeader():
         #     Offsets into blob_buffer table
         self.config_names = []
         for i in range(256):
-            self.config_names.append(int.from_bytes(fo.read(4), 'big'))
+            self.config_names.append(unpack('>I', fo.read(4))[0])
 
         # 3068 - 4091: uint32_t config_data[256]
         #     Offsets into blob_buffer table
         self.config_data = []
         for i in range(256):
-            self.config_data.append(int.from_bytes(fo.read(4), 'big'))
+            self.config_data.append(unpack('>I', fo.read(4))[0])
 
         # 4092 - 4095: reserved
         fo.seek(4, os.SEEK_CUR)
@@ -77,7 +77,7 @@ class VmaHeader():
         # blob metadata is stored in a hashmap, with the offsets as the keys
         self.blob_buffer = {}
         blob_buffer_current_offset = 1
-        while(fo.tell() < self.blob_buffer_offset + self.blob_buffer_size):
+        while fo.tell() < self.blob_buffer_offset + self.blob_buffer_size:
             self.blob_buffer[blob_buffer_current_offset] = Blob(fo)
             blob_buffer_current_offset = fo.tell() - self.blob_buffer_offset
 
@@ -89,7 +89,6 @@ class VmaHeader():
             self.generated_md5sum = None
         else:
             self.generated_md5sum = self.__gen_md5sum(fo)
-
 
     def __gen_md5sum(self, fo):
         p = fo.tell()
@@ -104,29 +103,28 @@ class VmaHeader():
         return h.digest()
 
 
-class VmaDeviceInfoHeader():
+class VmaDeviceInfoHeader(object):
     def __init__(self, fo, vma_header):
         self.__vma_header = vma_header
 
         # 0 -  3:   devive name (offsets into blob_buffer table)
-        self.device_name = int.from_bytes(fo.read(4), 'big')
+        self.device_name, = unpack('>I', fo.read(4))
 
         # 4 -  7:   reserved
         fo.seek(4, os.SEEK_CUR)
 
         # 8 - 15:   device size in bytes
-        self.device_size = int.from_bytes(fo.read(8), 'big')
+        self.device_size, = unpack('>q', fo.read(8))
 
         # 16 - 31:   reserved
         fo.seek(16, os.SEEK_CUR)
-
 
     def get_name(self):
         name = self.__vma_header.blob_buffer[self.device_name].data
         return name.split(b'\0')[0].decode('utf-8')
 
 
-class VmaExtentHeader():
+class VmaExtentHeader(object):
     def __init__(self, fo, vma_header, skip_hash):
         self.pos_start = fo.tell()
 
@@ -140,7 +138,7 @@ class VmaExtentHeader():
 
         # 6 -  7:   block_count
         #     Overall number of contained 4K block
-        self.block_count = int.from_bytes(fo.read(2), 'big')
+        self.block_count, = unpack('>h', fo.read(2))
 
         # 8 - 23:   uuid
         #     Unique ID, Same uuid as used in the VMA header.
@@ -163,7 +161,6 @@ class VmaExtentHeader():
         else:
             self.generated_md5sum = self.__gen_md5sum(fo)
 
-
     def __gen_md5sum(self, fo):
         p = fo.tell()
         fo.seek(self.pos_start, os.SEEK_SET)
@@ -177,37 +174,37 @@ class VmaExtentHeader():
         return h.digest()
 
 
-class Blob():
+class Blob(object):
     def __init__(self, fo):
         # the size of a blob is a two-byte int in LITTLE endian
         # source: original c code of vma-reader
         #    uint32_t size = vmar->head_data[bstart] +
         #        (vmar->head_data[bstart+1] << 8);
-        self.size = int.from_bytes(fo.read(2), 'little')
+        self.size, = unpack('<h', fo.read(2))
         self.data = fo.read(self.size)
 
 
-class Blockinfo():
+class Blockinfo(object):
     CLUSTER_SIZE = 65536
 
     def __init__(self, fo, vma_header):
         self.__vma_header = vma_header
 
         # 0 - 1:   mask
-        self.mask = int.from_bytes(fo.read(2), 'big')
+        self.mask, = unpack('>h', fo.read(2))
 
         # 2:   reserved
         fo.seek(1, os.SEEK_CUR)
 
         # 3:   dev_id
         #    Device ID (offset into dev_info table)
-        self.dev_id = int.from_bytes(fo.read(1), 'big')
+        self.dev_id, = unpack('>b', fo.read(1))
 
         # 4 - 7:   cluster_num
-        self.cluster_num = int.from_bytes(fo.read(4), 'big')
+        self.cluster_num, = unpack('>I', fo.read(4))
 
 
-def extract_configs(fo, args, vma_header):
+def extract_configs(args, vma_header):
     """
     Configs in VMA are composed of two blobs. One specifies the config's
     filename and the other contains the config's content.
@@ -215,27 +212,31 @@ def extract_configs(fo, args, vma_header):
     terminated.
     """
 
-    if args.verbose: print('extracting configs...')
+    if args.verbose:
+        print('extracting configs...')
 
     for i in range(256):
-        if vma_header.config_names[i] == 0: continue
+        if vma_header.config_names[i] == 0:
+            continue
         config_name = vma_header.blob_buffer[vma_header.config_names[i]].data
         # interpret filename as a null-terminated utf-8 string
         config_name = config_name.split(b'\0')[0].decode('utf-8')
 
-        if args.verbose: print(f'{config_name}...', end='')
+        if args.verbose:
+            print(u'{config_name}...'.format(config_name=config_name))
 
         config_data = vma_header.blob_buffer[vma_header.config_data[i]].data
 
         with open(os.path.join(args.destination, config_name), 'wb') as config_fo:
             config_fo.write(config_data)
 
-        if args.verbose: print(' OK')
+        if args.verbose:
+            print(' OK')
 
 
 def extract(fo, args):
-    os.makedirs(args.destination, exist_ok=True)
-
+    if not os.path.exists(args.destination):
+        os.makedirs(args.destination)
     fo.seek(0, os.SEEK_END)
     filesize = fo.tell()
     fo.seek(0, os.SEEK_SET)
@@ -247,28 +248,31 @@ def extract(fo, args):
     if vma_header.generated_md5sum is not None:
         assert vma_header.md5sum == vma_header.generated_md5sum
 
-    extract_configs(fo, args, vma_header)
+    extract_configs(args, vma_header)
 
     # extract_configs may move the read head somewhere into the blob buffer
     # make sure we are back at the end of the header
     fo.seek(vma_header.header_size, os.SEEK_SET)
 
-    if args.verbose: print('extracting devices...')
+    if args.verbose:
+        print('extracting devices...')
 
     # open file handlers for all devices within the VMA
     # so we can easily append data to arbitrary devices
     device_fos = {}
     for dev_id, dev_info in enumerate(vma_header.dev_info):
         if dev_info.device_size > 0:
-            if args.verbose: print(dev_info.get_name())
+            if args.verbose:
+                print(dev_info.get_name())
             device_fos[dev_id] = open(os.path.join(args.destination, dev_info.get_name()), 'wb')
 
-    if args.verbose: print('this may take a while...')
+    if args.verbose:
+        print('this may take a while...')
 
     # used for sanity checking
     cluster_num_prev = -1
 
-    while(fo.tell() < filesize):
+    while fo.tell() < filesize:
         # when there is data to read at this point, we can safely expect a full
         # extent header with additional clusters
         extent_header = VmaExtentHeader(fo, vma_header, args.skip_hash)
@@ -280,13 +284,15 @@ def extract(fo, args):
             assert extent_header.md5sum == extent_header.generated_md5sum
 
         for blockinfo in extent_header.blockinfo:
-            if blockinfo.dev_id == 0: continue
+            if blockinfo.dev_id == 0:
+                continue
 
             device_fo = device_fos[blockinfo.dev_id]
 
             # non-sequential clusters encountered, handle this case
             if blockinfo.cluster_num != cluster_num_prev + 1:
-                if args.verbose: print('non sequential cluster encountered...')
+                if args.verbose:
+                    print('non sequential cluster encountered...')
 
                 cluster_pos = blockinfo.cluster_num * Blockinfo.CLUSTER_SIZE
                 if blockinfo.cluster_num > cluster_num_prev:
@@ -299,9 +305,8 @@ def extract(fo, args):
                     if written_size < cluster_pos:
                         # add padding for missing clusters
                         if args.verbose:
-                            print(f'{blockinfo.cluster_num}')
-                            print(f'adding {cluster_pos - written_size} bytes'
-                                 + 'of padding...')
+                            print(u'{cluster_num}'.format(cluster_num=blockinfo.cluster_num))
+                            print(u'adding {_size} bytes of padding...'.format(_size=cluster_pos - written_size))
 
                         # write padding in chucks of 4096 bytes to avoid
                         # memory errors
@@ -322,11 +327,13 @@ def extract(fo, args):
                 else:
                     device_fo.write(b'\0' * 4096)
 
-    if args.verbose: print('closing file handles...')
+    if args.verbose:
+        print('closing file handles...')
     for device_fo in device_fos.values():
         device_fo.close()
 
-    if args.verbose: print('done')
+    if args.verbose:
+        print('done')
 
 
 def main():
@@ -335,16 +342,16 @@ def main():
     parser.add_argument('destination', type=str)
     parser.add_argument('-v', '--verbose', default=False, action='store_true')
     parser.add_argument('-f', '--force', default=False, action='store_true',
-            help='overwrite target file if it exists')
+                        help='overwrite target file if it exists')
     parser.add_argument('--skip-hash', default=False, action='store_true',
-            help='do not perform md5 checksum test of data')
+                        help='do not perform md5 checksum test of data')
     args = parser.parse_args()
 
-    if(not os.path.exists(args.filename)):
+    if not os.path.exists(args.filename):
         print('Error! Source file does not exist!')
         return 1
 
-    if(os.path.exists(args.destination) and not args.force):
+    if os.path.exists(args.destination) and not args.force:
         print('Error! Destination path exists!')
         return 1
 
@@ -352,6 +359,7 @@ def main():
         extract(fo, args)
 
     return 0
+
 
 if __name__ == '__main__':
     sys.exit(main())

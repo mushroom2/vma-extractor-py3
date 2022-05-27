@@ -2,7 +2,7 @@ VMA extractor
 =============
 
 `vma.py` implements an extraction tool for the VMA backup format used by
-[Proxmox](https://www.proxmox.com). The tool is implemented in Python3.
+[Proxmox](https://www.proxmox.com). The tool is implemented in Python2.
 
 Usage:
 ```sh
